@@ -2,7 +2,9 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import yt_dlp
+import requests
+import re
+import os
 import logging
 
 # 设置日志
@@ -15,103 +17,142 @@ app = FastAPI(title="YouTube视频下载工具")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-def get_video_info(video_url: str):
-    """获取视频信息和下载链接"""
-    ydl_opts = {
-        'format': 'best',  # 只获取最佳质量版本
-        'quiet': False,    # 显示详细日志
-        'no_warnings': False,
-        'extract_flat': False,
-        'ignoreerrors': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+# 从环境变量获取API密钥，或使用默认值进行测试
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "your_rapidapi_key")
+
+def extract_video_id(url):
+    """从YouTube URL提取视频ID"""
+    # 处理常规YouTube链接
+    youtube_regex = r'(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+    match = re.search(youtube_regex, url)
+    
+    if match:
+        return match.group(1)
+    return None
+
+def get_video_info(video_url):
+    """使用RapidAPI获取视频信息"""
+    video_id = extract_video_id(video_url)
+    
+    if not video_id:
+        raise HTTPException(status_code=400, detail="无效的YouTube链接")
+    
+    logger.info(f"提取到视频ID: {video_id}")
+    
+    # 使用RapidAPI的YouTube v3服务
+    url = "https://youtube-v31.p.rapidapi.com/videos"
+    
+    querystring = {"part":"contentDetails,snippet,statistics","id":video_id}
+    
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "youtube-v31.p.rapidapi.com"
     }
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                # 首先尝试获取基本信息
-                logger.info(f"正在获取视频信息: {video_url}")
-                info = ydl.extract_info(video_url, download=False)
-                
-                if not info:
-                    logger.error("无法获取视频信息")
-                    raise HTTPException(status_code=400, detail="无法获取视频信息")
-                
-                # 记录获取到的信息
-                logger.info(f"成功获取视频信息: {info.get('title', '未知标题')}")
-                
-                # 构建格式列表
-                formats = []
-                if 'formats' in info:
-                    for f in info['formats']:
-                        # 只获取包含URL的格式
-                        if 'url' in f:
-                            format_info = {
-                                'url': f['url'],
-                                'ext': f.get('ext', 'unknown'),
-                                'format_note': f.get('format_note', 'unknown'),
-                                'filesize': format_filesize(f.get('filesize', 0)),
-                                'resolution': f.get('resolution', 'unknown'),
-                                'format_id': f.get('format_id', 'unknown')
-                            }
-                            formats.append(format_info)
-                            logger.info(f"找到格式: {format_info['format_note']} - {format_info['resolution']}")
-                
-                if not formats:
-                    logger.warning("没有找到可用的下载格式")
-                
-                return {
-                    'title': info.get('title', '未知标题'),
-                    'author': info.get('uploader', '未知作者'),
-                    'duration': format_duration(info.get('duration', 0)),
-                    'thumbnail': info.get('thumbnail', ''),
-                    'formats': formats
-                }
-                
-            except Exception as e:
-                logger.error(f"提取视频信息时出错: {str(e)}")
-                # 尝试使用备用方法
-                info = ydl.extract_info(video_url, download=False, process=False)
-                if info:
-                    return {
-                        'title': info.get('title', '未知标题'),
-                        'author': info.get('uploader', '未知作者'),
-                        'duration': format_duration(info.get('duration', 0)),
-                        'thumbnail': info.get('thumbnail', ''),
-                        'formats': [{
-                            'url': info.get('url', ''),
-                            'ext': info.get('ext', 'mp4'),
-                            'format_note': 'Best quality',
-                            'filesize': 'Unknown',
-                            'resolution': info.get('resolution', 'Unknown')
-                        }]
-                    }
-                raise
-                
+        logger.info("正在通过API获取视频信息")
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()  # 检查HTTP错误
+        
+        data = response.json()
+        logger.info(f"API响应: {data}")
+        
+        if "items" not in data or len(data["items"]) == 0:
+            raise HTTPException(status_code=404, detail="视频未找到")
+        
+        video_data = data["items"][0]
+        snippet = video_data.get("snippet", {})
+        content_details = video_data.get("contentDetails", {})
+        
+        # 获取可用的下载链接
+        formats = get_download_links(video_id)
+        
+        return {
+            "title": snippet.get("title", "未知标题"),
+            "author": snippet.get("channelTitle", "未知作者"),
+            "description": snippet.get("description", ""),
+            "thumbnail": snippet.get("thumbnails", {}).get("high", {}).get("url", ""),
+            "duration": parse_duration(content_details.get("duration", "")),
+            "formats": formats
+        }
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"API请求失败: {str(e)}")
+        except Exception as e:
+        logger.error(f"处理错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"无法获取视频信息: {str(e)}")
+
+def get_download_links(video_id):
+    """获取视频下载链接"""
+    # 使用另一个API获取下载链接
+    url = "https://youtube-video-download-info.p.rapidapi.com/dl"
+    
+    querystring = {"id":video_id}
+    
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "youtube-video-download-info.p.rapidapi.com"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        
+        data = response.json()
+        logger.info(f"下载链接API响应状态: {data.get('status')}")
+        
+        formats = []
+        
+        # 处理不同格式
+        if "link" in data:
+            for format_key, format_info in data["link"].items():
+                if isinstance(format_info, dict) and "url" in format_info:
+                    formats.append({
+                        "url": format_info["url"],
+                        "ext": format_info.get("type", "mp4").split("/")[-1],
+                        "format_note": format_key,
+                        "resolution": format_info.get("qualityLabel", "Unknown"),
+                        "filesize": "未知"
+                    })
+        
+        # 如果没有找到链接，返回空列表
+        if not formats:
+            logger.warning("没有找到可用的下载链接")
+            
+        return formats
+        
     except Exception as e:
-        logger.error(f"处理视频时出错: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"获取下载链接错误: {str(e)}")
+        # 返回空列表而不是抛出异常
+        return []
 
-def format_filesize(bytes):
-    """格式化文件大小"""
-    if bytes == 0:
-        return 'Unknown'
-    units = ['B', 'KB', 'MB', 'GB']
-    size = float(bytes)
-    unit_index = 0
-    while size >= 1024 and unit_index < len(units) - 1:
-        size /= 1024
-        unit_index += 1
-    return f"{size:.2f} {units[unit_index]}"
-
-def format_duration(seconds):
-    """格式化视频时长"""
-    if not seconds:
-        return 'Unknown'
-    minutes, seconds = divmod(int(seconds), 60)
-    hours, minutes = divmod(minutes, 60)
+def parse_duration(duration_str):
+    """解析ISO 8601时长格式"""
+    if not duration_str or not duration_str.startswith("PT"):
+        return "未知"
+    
+    duration = duration_str[2:]  # 移除 "PT" 前缀
+    hours, minutes, seconds = 0, 0, 0
+    
+    # 解析小时
+    hour_pos = duration.find("H")
+    if hour_pos != -1:
+        hours = int(duration[:hour_pos])
+        duration = duration[hour_pos + 1:]
+    
+    # 解析分钟
+    minute_pos = duration.find("M")
+    if minute_pos != -1:
+        minutes = int(duration[:minute_pos])
+        duration = duration[minute_pos + 1:]
+    
+    # 解析秒
+    second_pos = duration.find("S")
+    if second_pos != -1:
+        seconds = int(duration[:second_pos])
+    
+    # 格式化时长
     if hours:
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     else:
@@ -123,7 +164,11 @@ async def index(request: Request):
 
 @app.post("/get-video-info")
 async def get_info(video_url: str = Form(...)):
-    if not video_url or "youtube.com" not in video_url and "youtu.be" not in video_url:
+    if not video_url:
+        raise HTTPException(status_code=400, detail="请提供YouTube视频链接")
+    
+    # 检查是否是YouTube链接
+    if "youtube.com" not in video_url and "youtu.be" not in video_url:
         raise HTTPException(status_code=400, detail="请提供有效的YouTube视频链接")
     
     logger.info(f"收到请求: {video_url}")
