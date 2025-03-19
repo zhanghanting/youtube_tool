@@ -3,199 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube 视频下载工具</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>YouTube视频下载工具</title>
     <style>
-        .progress-bar {
-            transition: width 0.3s ease-in-out;
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
         }
-        /* 自定义文件选择按钮样式 */
-        .custom-file-input::-webkit-file-upload-button {
-            display: none;
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
         }
-        .custom-file-input::file-selector-button {
-            display: none;
+        .input-group {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #ff0000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #result {
+            margin-top: 20px;
+        }
+        .format-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        .download-link {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .video-info {
+            margin-bottom: 20px;
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <!-- 标题和简介 -->
-        <div class="text-center mb-12">
-            <h1 class="text-4xl font-bold text-gray-800 mb-4">YouTube 视频下载工具</h1>
-            <p class="text-gray-600 text-lg">输入YouTube视频链接，轻松下载高质量视频</p>
+<body>
+    <div class="container">
+        <h1>YouTube视频下载工具</h1>
+        <div class="input-group">
+            <input type="text" id="videoUrl" placeholder="输入YouTube视频链接">
+            <button onclick="getVideoInfo()">获取下载链接</button>
         </div>
-
-        <!-- 下载表单 -->
-        <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6 mb-8">
-            <form id="downloadForm" class="space-y-4">
-                <div>
-                    <label for="videoUrl" class="block text-sm font-medium text-gray-700 mb-2">YouTube视频链接</label>
-                    <input type="url" id="videoUrl" name="video_url" required
-                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                           placeholder="https://www.youtube.com/watch?v=...">
-                </div>
-                
-                <!-- 下载目录选择 -->
-                <div>
-                    <label for="downloadDir" class="block text-sm font-medium text-gray-700 mb-2">下载目录</label>
-                    <div class="flex items-center space-x-2">
-                        <input type="text" id="downloadDir" name="download_dir" readonly
-                               class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                               placeholder="选择下载目录">
-                        <button type="button" onclick="openDirectoryPicker()"
-                                class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
-                            选择目录
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 格式选择 -->
-                <div>
-                    <label for="formatType" class="block text-sm font-medium text-gray-700 mb-2">下载格式</label>
-                    <select id="formatType" name="format_type"
-                            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <option value="video">视频 (MP4)</option>
-                        <option value="audio">音频 (MP3)</option>
-                    </select>
-                </div>
-                
-                <button type="submit"
-                        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
-                    开始下载
-                </button>
-            </form>
-            <!-- 下载进度 -->
-            <div id="downloadProgress" class="hidden mt-4">
-                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                    <div class="progress-bar bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
-                </div>
-                <p class="text-sm text-gray-600 mt-2 text-center">下载进度: <span id="progressText">0%</span></p>
-            </div>
-        </div>
-
-        <!-- 视频列表 -->
-        <div class="max-w-4xl mx-auto">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">已下载视频</h2>
-            <div id="videoList" class="space-y-6">
-                {% for video in videos %}
-                <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                    <div class="p-6">
-                        <div class="flex items-start space-x-4">
-                            {% if video.thumbnail %}
-                            <img src="{{ video.thumbnail }}" alt="{{ video.title }}" class="w-48 h-27 object-cover rounded">
-                            {% endif %}
-                            <div class="flex-1">
-                                <h3 class="text-xl font-semibold text-gray-800 mb-2">{{ video.title }}</h3>
-                                <div class="space-y-2 text-gray-600">
-                                    <p><span class="font-medium">作者:</span> {{ video.author }}</p>
-                                    <p><span class="font-medium">时长:</span> {{ video.duration }}</p>
-                                    <p><span class="font-medium">大小:</span> {{ video.size }}</p>
-                                    <p><span class="font-medium">下载时间:</span> {{ video.created_at }}</p>
-                                </div>
-                                <div class="mt-4">
-                                    <a href="/video/{{ video.video_id }}" 
-                                       class="inline-block bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
-                                        播放视频
-                                    </a>
-                                    <button onclick="openFileLocation('{{ video.video_id }}')"
-                                            class="ml-2 inline-block bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
-                                        打开文件位置
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
+        <div id="result"></div>
     </div>
 
     <script>
-        // 打开目录选择器
-        async function openDirectoryPicker() {
-            try {
-                const dirInput = document.getElementById('downloadDir');
-                
-                // 调用后端API打开系统原生的目录选择对话框
-                const response = await fetch('/select-directory');
-                const data = await response.json();
-                
-                if (data.directory) {
-                    dirInput.value = data.directory;
-                }
-            } catch (err) {
-                console.error('Error selecting directory:', err);
-                alert('选择目录失败，请手动输入完整路径');
-            }
-        }
-
-        document.getElementById('downloadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        async function getVideoInfo() {
             const videoUrl = document.getElementById('videoUrl').value;
-            const downloadDir = document.getElementById('downloadDir').value;
-            const formatType = document.getElementById('formatType').value;
-            const progressDiv = document.getElementById('downloadProgress');
-            const progressBar = progressDiv.querySelector('.progress-bar');
-            const progressText = document.getElementById('progressText');
-
-            // 显示进度条
-            progressDiv.classList.remove('hidden');
-            progressBar.style.width = '0%';
-            progressText.textContent = '0%';
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '正在获取视频信息...';
 
             try {
-                // 构建请求体
-                const formData = new FormData();
-                formData.append('video_url', videoUrl);
-                if (downloadDir) {
-                    formData.append('download_dir', downloadDir);
-                }
-                formData.append('format_type', formatType);
-
-                // 开始下载
-                const response = await fetch('/download', {
+                const response = await fetch('/get-video-info', {
                     method: 'POST',
-                    body: formData
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `video_url=${encodeURIComponent(videoUrl)}`
                 });
+
+                if (!response.ok) {
+                    throw new Error('获取视频信息失败');
+                }
+
                 const data = await response.json();
+                let html = `
+                    <div class="video-info">
+                        <h2>${data.title}</h2>
+                        <p>作者: ${data.author}</p>
+                        ${data.thumbnail ? `<img src="${data.thumbnail}" alt="缩略图" style="max-width: 200px;">` : ''}
+                    </div>
+                    <h3>可用下载格式:</h3>
+                `;
 
-                // 轮询下载状态
-                const checkStatus = async () => {
-                    const statusResponse = await fetch(`/download-status/${data.download_id}`);
-                    const statusData = await statusResponse.json();
+                data.formats.forEach(format => {
+                    html += `
+                        <div class="format-item">
+                            <p>格式: ${format.format_note} (${format.ext})</p>
+                            <p>分辨率: ${format.resolution}</p>
+                            <p>文件大小: ${format.filesize === 'Unknown' ? '未知' : format.filesize}</p>
+                            <a class="download-link" href="${format.url}" target="_blank">下载</a>
+                        </div>
+                    `;
+                });
 
-                    if (statusData.status === 'downloading') {
-                        progressBar.style.width = `${statusData.progress}%`;
-                        progressText.textContent = `${statusData.progress}%`;
-                        setTimeout(checkStatus, 1000);
-                    } else if (statusData.status === 'completed') {
-                        progressBar.style.width = '100%';
-                        progressText.textContent = '100%';
-                        // 刷新页面以显示新下载的视频
-                        setTimeout(() => window.location.reload(), 1000);
-                    } else if (statusData.status === 'error') {
-                        alert(`下载失败: ${statusData.error}`);
-                    }
-                };
-
-                checkStatus();
+                resultDiv.innerHTML = html;
             } catch (error) {
-                alert('下载请求失败，请重试');
-            }
-        });
-
-        // 打开文件位置的函数
-        async function openFileLocation(videoId) {
-            try {
-                const response = await fetch(`/open-file-location/${videoId}`);
-                const data = await response.json();
-                // 使用后端API打开文件夹
-                await fetch(`/open-folder/${encodeURIComponent(data.filepath)}`);
-            } catch (error) {
-                console.error('Error opening file location:', error);
-                alert('无法打开文件位置');
+                resultDiv.innerHTML = `错误: ${error.message}`;
             }
         }
     </script>
