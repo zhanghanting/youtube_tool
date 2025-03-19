@@ -48,6 +48,13 @@
         .video-info {
             margin-bottom: 20px;
         }
+        .error {
+            color: red;
+            padding: 10px;
+            background-color: #ffe6e6;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -75,34 +82,41 @@
                     body: `video_url=${encodeURIComponent(videoUrl)}`
                 });
 
+                const data = await response.json();
+                
                 if (!response.ok) {
-                    throw new Error('获取视频信息失败');
+                    throw new Error(data.detail || '获取视频信息失败');
                 }
 
-                const data = await response.json();
                 let html = `
                     <div class="video-info">
                         <h2>${data.title}</h2>
                         <p>作者: ${data.author}</p>
+                        <p>时长: ${data.duration}</p>
                         ${data.thumbnail ? `<img src="${data.thumbnail}" alt="缩略图" style="max-width: 200px;">` : ''}
                     </div>
                     <h3>可用下载格式:</h3>
                 `;
 
-                data.formats.forEach(format => {
-                    html += `
-                        <div class="format-item">
-                            <p>格式: ${format.format_note} (${format.ext})</p>
-                            <p>分辨率: ${format.resolution}</p>
-                            <p>文件大小: ${format.filesize === 'Unknown' ? '未知' : format.filesize}</p>
-                            <a class="download-link" href="${format.url}" target="_blank">下载</a>
-                        </div>
-                    `;
-                });
+                if (data.formats && data.formats.length > 0) {
+                    data.formats.forEach(format => {
+                        html += `
+                            <div class="format-item">
+                                <p>格式: ${format.format_note} (${format.ext})</p>
+                                <p>分辨率: ${format.resolution}</p>
+                                <p>文件大小: ${format.filesize}</p>
+                                <a class="download-link" href="${format.url}" target="_blank" rel="noopener noreferrer">下载</a>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p>没有找到可用的下载格式</p>';
+                }
 
                 resultDiv.innerHTML = html;
             } catch (error) {
-                resultDiv.innerHTML = `错误: ${error.message}`;
+                resultDiv.innerHTML = `<div class="error">错误: ${error.message}</div>`;
+                console.error('Error:', error);
             }
         }
     </script>
